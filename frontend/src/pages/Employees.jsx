@@ -1,0 +1,285 @@
+import { useEffect, useMemo, useState } from "react";
+import axiosInstance from "../api/api";
+import Topbar from "../components/Topbar";
+import { useAuth } from "../context/AuthContext";
+import toast from "react-hot-toast";
+
+export default function Employees() {
+  const { user } = useAuth();
+  const [employees, setEmployees] = useState([]);
+  const [tasks, setTasks] = useState([]);
+  const [selectedUser, setSelectedUser] = useState(null);
+
+  // Search and Filter States
+  const [userSearch, setUserSearch] = useState("");
+  const [taskSearch, setTaskSearch] = useState("");
+  const [taskStatusFilter, setTaskStatusFilter] = useState("All");
+
+  // Loading States
+  const [loading, setLoading] = useState(true);
+  const [loadingTasks, setLoadingTasks] = useState(false);
+
+  useEffect(() => {
+    fetchEmployees();
+  }, []);
+
+  async function fetchEmployees() {
+    try {
+      const { data } = await axiosInstance.get("/users");
+      setEmployees(data);
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to load employee list");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // Employee par click karke uske tasks fetch karne ka logic
+  const handleUserClick = async (emp) => {
+    setSelectedUser(emp);
+    setLoadingTasks(true);
+    setTaskSearch("");
+    setTaskStatusFilter("All");
+    try {
+      const { data } = await axiosInstance.get("/tasks");
+      const userTasks = data.filter(
+        (t) => (t.assignedTo?._id || t.assignedTo) === emp._id,
+      );
+      setTasks(userTasks);
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to load tasks for this employee");
+    } finally {
+      setLoadingTasks(false);
+    }
+  };
+
+  const handleDelete = async (id, e) => {
+    e.stopPropagation();
+    if (
+      !window.confirm("This action cannot be undone. Confirm account deletion?")
+    )
+      return;
+    try {
+      await axiosInstance.delete(`/employees/${id}`);
+      toast.success("Account deleted successfully!");
+      setEmployees(employees.filter((emp) => emp._id !== id));
+      if (selectedUser?._id === id) {
+        setSelectedUser(null);
+        setTasks([]);
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.message || "Deletion failed");
+    }
+  };
+
+  // Employee Search Logic
+  const filteredUsers = useMemo(() => {
+    if (!userSearch.trim()) return employees;
+    const query = userSearch.toLowerCase();
+    return employees.filter(
+      (emp) =>
+        emp.name.toLowerCase().includes(query) ||
+        emp.email.toLowerCase().includes(query),
+    );
+  }, [employees, userSearch]);
+
+  // Task Search aur Status Filter Logic
+  const filteredTasks = useMemo(() => {
+    return tasks.filter((task) => {
+      const matchSearch =
+        task.title.toLowerCase().includes(taskSearch.toLowerCase()) ||
+        (task.project?.title || "")
+          .toLowerCase()
+          .includes(taskSearch.toLowerCase()) ||
+        (task.description || "")
+          .toLowerCase()
+          .includes(taskSearch.toLowerCase());
+
+      const matchStatus =
+        taskStatusFilter === "All" || task.status === taskStatusFilter;
+
+      return matchSearch && matchStatus;
+    });
+  }, [tasks, taskSearch, taskStatusFilter]);
+
+  if (loading)
+    return (
+      <div className="flex h-screen items-center justify-center text-sm font-semibold text-slate-500 animate-pulse">
+        Syncing employee registry...
+      </div>
+    );
+
+  const statusColors = {
+    Pending: "text-rose-700 bg-rose-100",
+    "In Progress": "text-amber-800 bg-amber-100",
+    Completed: "text-emerald-800 bg-emerald-100",
+  };
+
+  return (
+    <main className="p-4 md:p-6 lg:p-8 space-y-6 animate-fade-in transition-all">
+      <Topbar title="Organization Registry" />
+
+      {/* Header Section: Yahan se button hata diya gaya hai */}
+      <section className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-6 rounded-3xl bg-white border border-slate-200/60 shadow-sm">
+        <div>
+          <h2 className="text-xl font-bold tracking-tight text-slate-900">
+            Access Control & Team Tasks
+          </h2>
+          <p className="mt-1 text-sm font-medium text-slate-500">
+            Manage organization members and monitor their current workload.
+          </p>
+        </div>
+      </section>
+
+      {/* Split View: List on Left, Tasks on Right */}
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.2fr] gap-6 items-start">
+        {/* LEFT COLUMN: Employee List & Search */}
+        <section className="rounded-3xl border border-slate-200/60 bg-white shadow-sm overflow-hidden flex flex-col h-[700px]">
+          <div className="p-5 border-b border-slate-100 bg-slate-50/50">
+            <input
+              type="text"
+              placeholder="Search staff members..."
+              value={userSearch}
+              onChange={(e) => setUserSearch(e.target.value)}
+              className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm text-slate-900 shadow-sm transition outline-none focus:border-indigo-400 focus:ring-4 focus:ring-indigo-400/20"
+            />
+          </div>
+
+          <div className="overflow-y-auto flex-1 p-2">
+            {filteredUsers.length === 0 ? (
+              <div className="p-8 text-center text-slate-400 text-sm font-medium">
+                No matches found.
+              </div>
+            ) : (
+              <div className="space-y-1">
+                {filteredUsers.map((emp) => (
+                  <div
+                    key={emp._id}
+                    onClick={() => handleUserClick(emp)}
+                    className={`group flex items-center justify-between p-4 rounded-2xl cursor-pointer transition-all duration-200 border border-transparent ${
+                      selectedUser?._id === emp._id
+                        ? "bg-indigo-50 border-indigo-200 shadow-sm"
+                        : "hover:bg-slate-50 hover:border-slate-200"
+                    }`}
+                  >
+                    <div>
+                      <h4
+                        className={`text-sm font-bold ${selectedUser?._id === emp._id ? "text-indigo-900" : "text-slate-800"}`}
+                      >
+                        {emp.name}
+                      </h4>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        {emp.email}
+                      </p>
+                      <span
+                        className={`inline-block mt-2 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${emp.role === "Admin" ? "bg-indigo-100 text-indigo-700" : "bg-slate-200 text-slate-700"}`}
+                      >
+                        {emp.role}
+                      </span>
+                    </div>
+                    {user?.role === "Admin" && (
+                      <button
+                        onClick={(e) => handleDelete(emp._id, e)}
+                        className="opacity-0 group-hover:opacity-100 rounded-lg bg-white px-3 py-1.5 text-xs font-bold text-rose-600 shadow-sm ring-1 ring-rose-200 transition-all hover:bg-rose-600 hover:text-white"
+                      >
+                        Delete
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </section>
+
+        {/* RIGHT COLUMN: Tasks View */}
+        <section className="rounded-3xl border border-slate-200/60 bg-white shadow-sm overflow-hidden flex flex-col h-[700px]">
+          {selectedUser ? (
+            <>
+              <div className="p-5 border-b border-slate-100 bg-slate-50/50 space-y-4">
+                <h3 className="text-lg font-bold text-slate-900">
+                  Tasks for{" "}
+                  <span className="text-indigo-600">{selectedUser.name}</span>
+                </h3>
+
+                <div className="flex flex-col sm:flex-row gap-3">
+                  <input
+                    type="text"
+                    placeholder="Search tasks..."
+                    value={taskSearch}
+                    onChange={(e) => setTaskSearch(e.target.value)}
+                    className="flex-1 rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 shadow-sm outline-none focus:border-indigo-400"
+                  />
+                  <select
+                    value={taskStatusFilter}
+                    onChange={(e) => setTaskStatusFilter(e.target.value)}
+                    className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 shadow-sm outline-none transition focus:border-indigo-400"
+                  >
+                    <option value="All">All Status</option>
+                    <option value="Pending">Pending</option>
+                    <option value="In-Progress">In Progress</option>
+                    <option value="Completed">Completed</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="overflow-y-auto flex-1 p-5 bg-slate-50/30">
+                {loadingTasks ? (
+                  <div className="py-12 text-center text-sm font-medium text-slate-400 animate-pulse">
+                    Loading...
+                  </div>
+                ) : filteredTasks.length === 0 ? (
+                  <div className="py-16 text-center border-2 border-dashed border-slate-200 rounded-2xl text-slate-400 text-sm font-medium">
+                    No task records found for this employee.
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {filteredTasks.map((task) => (
+                      <div
+                        key={task._id}
+                        className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm"
+                      >
+                        <div className="flex justify-between items-start gap-3 mb-3">
+                          <h4 className="text-base font-bold text-slate-900">
+                            {task.title}
+                          </h4>
+                          <span
+                            className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${statusColors[task.status] || "bg-slate-100"}`}
+                          >
+                            {task.status}
+                          </span>
+                        </div>
+                        <p className="text-sm text-slate-600 mb-4">
+                          {task.description}
+                        </p>
+                        <div className="flex items-center gap-2 pt-3 border-t border-slate-100 text-xs font-semibold text-slate-500">
+                          <span className="bg-indigo-50 text-indigo-700 px-2 py-1 rounded-md">
+                            Project: {task.project?.title || "N/A"}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </>
+          ) : (
+            <div className="flex-1 flex items-center justify-center p-8 text-center">
+              <div className="space-y-3">
+                <div className="mx-auto w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center text-2xl">
+                  👤
+                </div>
+                <p className="text-slate-500 font-medium">
+                  Select a staff member from the list to view their active task
+                  board.
+                </p>
+              </div>
+            </div>
+          )}
+        </section>
+      </div>
+    </main>
+  );
+}
